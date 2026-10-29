@@ -1,0 +1,11 @@
+[
+  {
+    "modid": "dimensioncontrol",
+    "name": "Dimension Control",
+    "description": "Per-player dimension access: a configurable item must be held to enter a dimension.",
+    "version": "${version}",
+    "mcversion": "1.7.10",
+    "authorList": ["dmuzik"],
+    "dependencies": []
+  }
+]

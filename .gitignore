@@ -1,0 +1,7 @@
+.gradle/
+build/
+run/
+testmod/.gradle/
+testmod/build/
+reference-mods/
+node_modules/
