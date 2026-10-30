@@ -15,7 +15,7 @@ const CONFIG = L.CONFIG();
 
 async function main() {
   // One after another: Forge 1.7.10 shares one internal channel between concurrent FML handshakes
-  const alice = new Bot('Alice');
+  let alice = new Bot('Alice');
   await alice.ready();
   const bob = new Bot('Bob');
   await bob.ready();
@@ -216,16 +216,32 @@ async function main() {
   await console_('dimaccess reload', /Config znovu načten/);
   await tp(bob, ...endFront);
 
-  // ---- T12: operators bypass ----
+  // ---- T12: operators are checked by default; opsBypass=true lets them in, with a notice ----
   await console_('op Bob', /Opped Bob/);
   await tp(bob, ...front);
   await sleep(3000); // portal cooldown left over from T11
+  c = bob.chat.length;
+  await tp(bob, ...inside);
+  await sleep(6000);
+  check('T12 OP is checked by default (opsBypass=false)', bob.dim === 0 && bob.messagesSince(c, DENY).length === 1);
+  out = await console_('dimaccess check Bob -1', /ZAMÍTNUTO|POVOLENO/);
+  check('T12 /dimaccess check explains the denial', /-1 \(Nether\): ZAMÍTNUTO - potřebuje minecraft:flint_and_steel/.test(out), out.trim().split('\n').pop());
+  setGeneral('opsBypass', 'true');
+  await console_('dimaccess reload', /Config znovu načten/);
+  out = await console_('dimaccess check Bob -1', /ZAMÍTNUTO|POVOLENO/);
+  check('T12 /dimaccess check shows the OP bypass', /POVOLENO - obchvat: OP \(opsBypass=true\)/.test(out), out.trim().split('\n').pop());
+  await tp(bob, ...front);
+  await sleep(3000);
+  c = bob.chat.length;
   await tp(bob, ...inside);
   await waitFor(() => bob.dim === -1, 10000);
-  check('T12 OP enters without item', bob.dim === -1);
+  check('T12 OP enters without item with opsBypass=true', bob.dim === -1);
+  check('T12 OP is told it was only the bypass', bob.messagesSince(c, /tě pouští jen obchvat pro OP/).length === 1, JSON.stringify(bob.chat.slice(c)));
   out = await console_('dimaccess list Bob', /má odemčeno/);
   check('T12 OP bypass does not unlock', /má odemčeno: nic/.test(out));
   await backToOverworld(bob);
+  setGeneral('opsBypass', 'false');
+  await console_('dimaccess reload', /Config znovu načten/);
   await console_('deop Bob', /De-opped Bob/);
 
   // ---- T13: two players in the same portal at the same time ----
@@ -244,13 +260,30 @@ async function main() {
 
   // ---- T14: unknown item in the config is reported ----
   fs.appendFileSync(CONFIG, '\ndimensions {\n    broken {\n        I:dimensionId=7\n        S:item=nosuchmod:nothing\n    }\n}\n');
-  out = await console_('dimaccess reload', /Config znovu načten[\s\S]*unknown item 'nosuchmod:nothing'/);
-  check('T14 reload reports an unknown item', !!out);
+  out = await console_('dimaccess reload', /Config znovu načten[\s\S]*neznámý předmět 'nosuchmod:nothing'[\s\S]*dimenze 7 na serveru neexistuje/);
+  check('T14 reload reports the unknown item and the missing dimension', !!out);
   out = await console_('dimaccess rules', /neznámý předmět/);
   check('T14 /dimaccess rules marks the broken rule', /7 .*nosuchmod:nothing.*neznámý předmět/.test(out));
 
   out = await console_('dimaccess dims', /1 The End → minecraft:ender_eye/);
   check('T15 /dimaccess dims lists dimensions with their rules', /0 Overworld.*bez omezení/.test(out) && /1 The End.*ender_eye/.test(out), out.split('\n').filter((l) => /INFO\]: §e/.test(l)).join(' | '));
+
+  // ---- T16: /dimaccess check for every rule ----
+  await console_('dimaccess grant Bob 1', /odemčena pro|už má/);
+  out = await console_('dimaccess check Bob', /\(broken\)/);
+  check('T16 check: unlocked dimension', /1 \(The End\): POVOLENO - trvale odemčeno/.test(out));
+  check('T16 check: rule with an unknown item', /7 \(broken\): ZAMÍTNUTO - potřebuje nosuchmod:nothing \(ten předmět neexistuje/.test(out));
+  await console_('dimaccess revoke Bob all', /odebráno/);
+
+  // ---- T17: operators see config problems when they log in ----
+  await console_('op Alice', /Opped Alice/);
+  alice.quit();
+  await sleep(1500);
+  alice = new Bot('Alice');
+  await alice.ready();
+  await waitFor(() => alice.chat.some((m) => /neznámý předmět/.test(m)), 5000);
+  check('T17 OP gets the config problems on login', alice.chat.some((m) => /Nastavení má problémy/.test(m)) && alice.chat.some((m) => /neznámý předmět 'nosuchmod:nothing'/.test(m)), JSON.stringify(alice.chat));
+  await console_('deop Alice', /De-opped Alice/);
 
   check('no bot was kicked', !alice.kicked && !bob.kicked, `${alice.kicked || ''} ${bob.kicked || ''}`);
 

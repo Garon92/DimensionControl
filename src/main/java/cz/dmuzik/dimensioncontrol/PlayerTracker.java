@@ -136,6 +136,9 @@ public class PlayerTracker {
     public void onLogin(PlayerEvent.PlayerLoggedInEvent event) {
         // Wherever the player logged out is where they are allowed to be now
         tracks.remove(event.player.getUniqueID());
+        if (event.player instanceof EntityPlayerMP) {
+            AdminNotices.onLogin((EntityPlayerMP) event.player);
+        }
     }
 
     /** Returns true when the player was sent back. */

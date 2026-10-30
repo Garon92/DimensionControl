@@ -20,6 +20,7 @@ public final class AccessManager {
     }
 
     private static final Map<UUID, Integer> lastMessageTick = new HashMap<UUID, Integer>();
+    private static final Map<UUID, Integer> lastBypassNoticeTick = new HashMap<UUID, Integer>();
     private static int bypassDepth;
 
     private AccessManager() {}
@@ -36,6 +37,9 @@ public final class AccessManager {
             onDenied(player, DCConfig.getRule(targetDim), true);
             return false;
         }
+        if (decision == Decision.BYPASS) {
+            onBypass(player, DCConfig.getRule(targetDim));
+        }
         PlayerTracker.approve(player, targetDim);
         return true;
     }
@@ -50,26 +54,35 @@ public final class AccessManager {
             onDenied(player, DCConfig.getRule(dimension), false);
             return false;
         }
+        if (decision == Decision.BYPASS) {
+            onBypass(player, DCConfig.getRule(dimension));
+        }
         return true;
     }
 
-    /** Evaluates access and, when the item check passes for an unlockable rule, grants the permanent unlock. */
-    public static Decision decide(EntityPlayerMP player, int dimension) {
+    /** Evaluates access without side effects (used by /dimaccess check). */
+    public static Decision evaluate(EntityPlayerMP player, int dimension) {
         DimensionRule rule = DCConfig.getRule(dimension);
         if (rule == null) {
             return Decision.UNRESTRICTED;
         }
-        if (hasBypass(player)) {
+        if (bypassReason(player) != null) {
             return Decision.BYPASS;
         }
-        UUID id = player.getUniqueID();
-        if (rule.unlockAfterFirstEntry && UnlockData.isUnlocked(id, dimension)) {
+        if (rule.unlockAfterFirstEntry && UnlockData.isUnlocked(player.getUniqueID(), dimension)) {
             return Decision.UNLOCKED;
         }
-        if (!rule.matches(player.getCurrentEquippedItem())) {
-            return Decision.DENIED;
+        return rule.matches(player.getCurrentEquippedItem()) ? Decision.HOLDING_ITEM : Decision.DENIED;
+    }
+
+    /** Evaluates access and, when the item check passes for an unlockable rule, grants the permanent unlock. */
+    public static Decision decide(EntityPlayerMP player, int dimension) {
+        Decision decision = evaluate(player, dimension);
+        if (decision != Decision.HOLDING_ITEM) {
+            return decision;
         }
-        if (rule.unlockAfterFirstEntry && UnlockData.unlock(id, dimension)) {
+        DimensionRule rule = DCConfig.getRule(dimension);
+        if (rule.unlockAfterFirstEntry && UnlockData.unlock(player.getUniqueID(), dimension)) {
             DimensionControl.LOG
                 .info("{} unlocked dimension {} ({})", player.getCommandSenderName(), dimension, rule.dimensionName);
             if (!DCConfig.unlockMessage.isEmpty()) {
@@ -79,16 +92,21 @@ public final class AccessManager {
         return Decision.HOLDING_ITEM;
     }
 
-    public static boolean hasBypass(EntityPlayerMP player) {
+    /** Why the player skips the checks, or null when they do not. */
+    public static String bypassReason(EntityPlayerMP player) {
         if (DCConfig.creativeBypass && player.capabilities.isCreativeMode) {
-            return true;
+            return "creative (creativeBypass=true)";
         }
-        if (DCConfig.opsBypass) {
-            MinecraftServer server = MinecraftServer.getServer();
-            return server != null && server.getConfigurationManager() != null
-                && server.getConfigurationManager().func_152596_g(player.getGameProfile());
+        if (DCConfig.opsBypass && isOp(player)) {
+            return "OP (opsBypass=true)";
         }
-        return false;
+        return null;
+    }
+
+    public static boolean isOp(EntityPlayerMP player) {
+        MinecraftServer server = MinecraftServer.getServer();
+        return server != null && server.getConfigurationManager() != null
+            && server.getConfigurationManager().func_152596_g(player.getGameProfile());
     }
 
     public static boolean isRealPlayer(EntityPlayerMP player) {
@@ -108,10 +126,28 @@ public final class AccessManager {
 
     public static void forget(UUID id) {
         lastMessageTick.remove(id);
+        lastBypassNoticeTick.remove(id);
     }
 
     public static void clear() {
         lastMessageTick.clear();
+        lastBypassNoticeTick.clear();
+    }
+
+    /** Tells the player they only got in because of a bypass, so an admin testing the mod is not misled. */
+    private static void onBypass(EntityPlayerMP player, DimensionRule rule) {
+        int now = MinecraftServer.getServer().getTickCounter();
+        Integer last = lastBypassNoticeTick.get(player.getUniqueID());
+        if (last != null && now - last < DCConfig.messageCooldownTicks && now >= last) {
+            return;
+        }
+        lastBypassNoticeTick.put(player.getUniqueID(), now);
+        player.addChatMessage(
+            Messages.format(
+                "&7[DimensionControl] Do &e%dim% &7tě pouští jen obchvat pro " + bypassReason(player)
+                    + ". Ostatní hráči potřebují &e%item%&7.",
+                rule,
+                player));
     }
 
     private static void onDenied(EntityPlayerMP player, DimensionRule rule, boolean beforeTransfer) {

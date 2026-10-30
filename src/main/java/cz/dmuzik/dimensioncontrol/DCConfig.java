@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeSet;
 
+import net.minecraftforge.common.DimensionManager;
 import net.minecraftforge.common.config.Configuration;
 
 public final class DCConfig {
@@ -15,7 +16,7 @@ public final class DCConfig {
     public static final String CATEGORY_GENERAL = "general";
     public static final String CATEGORY_DIMENSIONS = "dimensions";
 
-    public static boolean opsBypass = true;
+    public static boolean opsBypass = false;
     public static boolean creativeBypass = false;
     public static boolean alwaysAllowOverworld = true;
     public static int messageCooldownTicks = 100;
@@ -29,6 +30,10 @@ public final class DCConfig {
 
     private static Configuration config;
     private static volatile Map<Integer, DimensionRule> rules = Collections.emptyMap();
+    /** Problems found while reading the file (wrong item format, duplicate dimensions). */
+    private static List<String> loadProblems = new ArrayList<String>();
+    /** Everything wrong with the current config, shown to admins in chat. */
+    private static volatile List<String> problems = Collections.emptyList();
 
     private DCConfig() {}
 
@@ -38,23 +43,38 @@ public final class DCConfig {
         load(firstRun);
     }
 
-    /** Re-reads the file and re-resolves items. Returns problems worth showing to an admin. */
+    /** Re-reads the file and validates it again. Returns problems worth showing to an admin. */
     public static synchronized List<String> reload() {
         load(false);
-        return resolveItems();
+        return validate();
     }
 
-    /** Must run once all mods registered their items (server start). */
-    public static List<String> resolveItems() {
-        List<String> problems = new ArrayList<String>();
+    /**
+     * Resolves items and checks that the dimensions exist. Must run once all mods registered their items and
+     * dimensions (server start).
+     */
+    public static List<String> validate() {
+        List<String> found = new ArrayList<String>(loadProblems);
         for (DimensionRule rule : rules.values()) {
             if (!rule.resolve()) {
-                String problem = "Rule '" + rule.key + "' (dimension " + rule.dimensionId + "): unknown item '"
-                    + rule.itemId + "' - nobody can enter this dimension with an item until it is fixed";
-                DimensionControl.LOG.error(problem);
-                problems.add(problem);
+                found.add(
+                    "Pravidlo '" + rule.key + "' (dimenze " + rule.dimensionId + "): neznámý předmět '" + rule.itemId
+                        + "' - s předmětem se tam nikdo nedostane, dokud se to neopraví");
+            }
+            if (!DimensionManager.isDimensionRegistered(rule.dimensionId)) {
+                found.add(
+                    "Pravidlo '" + rule.key + "': dimenze " + rule.dimensionId
+                        + " na serveru neexistuje - pravidlo nic nehlídá (správná ID: /dimaccess dims)");
             }
         }
+        for (String problem : found) {
+            DimensionControl.LOG.error("Config problem: {}", problem);
+        }
+        problems = Collections.unmodifiableList(found);
+        return problems;
+    }
+
+    public static List<String> getProblems() {
         return problems;
     }
 
@@ -79,8 +99,9 @@ public final class DCConfig {
         opsBypass = config.getBoolean(
             "opsBypass",
             CATEGORY_GENERAL,
-            true,
-            "Operátoři (OP) můžou do všech dimenzí bez předmětu.");
+            false,
+            "Operátoři (OP) můžou do všech dimenzí bez předmětu. Pozor při testování: s true se kontrola\n"
+                + "netýká ani tebe (a v singleplayeru se zapnutými cheaty jsi OP).");
         creativeBypass = config.getBoolean(
             "creativeBypass",
             CATEGORY_GENERAL,
@@ -138,6 +159,7 @@ public final class DCConfig {
             addDefaultRules();
         }
 
+        loadProblems = new ArrayList<String>();
         Map<Integer, DimensionRule> loaded = new LinkedHashMap<Integer, DimensionRule>();
         for (String category : new TreeSet<String>(config.getCategoryNames())) {
             if (!category.startsWith(CATEGORY_DIMENSIONS + Configuration.CATEGORY_SPLITTER)) {
@@ -149,12 +171,9 @@ public final class DCConfig {
             }
             DimensionRule previous = loaded.put(rule.dimensionId, rule);
             if (previous != null) {
-                DimensionControl.LOG.warn(
-                    "Rules '{}' and '{}' both target dimension {}, using '{}'",
-                    previous.key,
-                    rule.key,
-                    rule.dimensionId,
-                    rule.key);
+                loadProblems.add(
+                    "Pravidla '" + previous.key + "' a '" + rule.key + "' hlídají stejnou dimenzi "
+                        + rule.dimensionId + ", platí jen '" + rule.key + "'");
             }
         }
         rules = Collections.unmodifiableMap(loaded);
@@ -211,7 +230,7 @@ public final class DCConfig {
             return null;
         }
         if (item.trim().isEmpty() || item.indexOf(':') < 0) {
-            DimensionControl.LOG.error("Rule '{}': item '{}' is not in modid:item format, rule ignored", key, item);
+            loadProblems.add("Pravidlo '" + key + "': předmět '" + item + "' není ve tvaru modid:item - pravidlo se ignoruje");
             return null;
         }
         return new DimensionRule(key, dimensionId, dimensionName, item.trim(), meta, itemName, message, unlock);

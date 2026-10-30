@@ -4,7 +4,7 @@ Serverový mod: do zvolených dimenzí se hráč dostane, jen když drží v ruc
 Kontrola probíhá u každého hráče zvlášť a předmět se nespotřebuje. Volitelně si hráč po prvním
 vstupu dimenzi trvale odemkne a předmět pak už nepotřebuje.
 
-**Hotový mod:** [`dist/DimensionControl-1.0.0.jar`](dist/DimensionControl-1.0.0.jar). Jar patří do složky `mods` na serveru.
+**Hotový mod:** [`dist/DimensionControl-1.0.1.jar`](dist/DimensionControl-1.0.1.jar). Jar patří do složky `mods` na serveru.
 Hráči ho nepotřebují, ale nevadí, když ho mají.
 
 ## Co umí
@@ -20,7 +20,9 @@ Hráči ho nepotřebují, ale nevadí, když ho mají.
   i restart serveru.
 - Zablokovaného hráče, který stojí v portálu, vrátí na poslední bezpečné místo před portálem.
   Hlavně kvůli End portálu, pod kterým bývá láva.
-- Operátoři (OP) mají obchvat (lze vypnout).
+- Operátoři (OP) se kontrolují stejně jako ostatní. Obchvat pro OP jde zapnout (`opsBypass=true`) a hráče,
+  kterého pustil jen obchvat, na to mod v chatu upozorní.
+- Chyby v configu (neznámý předmět, neexistující dimenze) se OP ukážou v chatu po přihlášení.
 
 ## Konfigurace
 
@@ -59,7 +61,7 @@ Obecná nastavení (`general`):
 
 | Klíč | Výchozí | Význam |
 |---|---|---|
-| `opsBypass` | `true` | OP mohou všude bez předmětu (a nic se jim neodemyká). |
+| `opsBypass` | `false` | `true` = OP mohou všude bez předmětu (a nic se jim neodemyká). V singleplayeru se zapnutými cheaty je OP i majitel světa. |
 | `creativeBypass` | `false` | Hráči v creative mohou všude bez předmětu. |
 | `alwaysAllowOverworld` | `true` | Pravidlo pro dimenzi 0 se ignoruje. |
 | `messageCooldownTicks` | `100` | Rozestup chybových zpráv (20 ticků = 1 s). |
@@ -69,8 +71,9 @@ Obecná nastavení (`general`):
 | `logBlockedAttempts` | `false` | Zapisovat každé zablokování do logu. |
 | `unlockMessage` | `&aDimenze &e%dim% &aje pro tebe nyní trvale odemčena.` | Zpráva po odemčení, prázdné = žádná. |
 
-Změny configu se načtou příkazem `/dimaccess reload` bez restartu. Neznámý předmět v configu se ohlásí
-v logu i v chatu. Do takové dimenze se pak s předmětem dostat nedá, dokud se chyba neopraví.
+Změny configu se načtou příkazem `/dimaccess reload` bez restartu. Neznámý předmět nebo dimenze, která
+na serveru neexistuje, se ohlásí v logu, po `/dimaccess reload` a OP po přihlášení. Do dimenze s neznámým
+předmětem se s předmětem dostat nedá, dokud se chyba neopraví.
 
 ### ID dimenzí modů z vašeho serveru
 
@@ -94,14 +97,24 @@ příkazem `/dimaccess dims`**, protože ID jde v configu modů změnit.
 
 | Příkaz | Co dělá |
 |---|---|
-| `/dimaccess rules` | Vypíše pravidla. |
+| `/dimaccess rules` | Vypíše pravidla, stav hlavní kontroly, OP obchvatu a chyby v configu. |
 | `/dimaccess dims` | Vypíše všechny dimenze na serveru s jejich ID a pravidly. |
+| `/dimaccess check <hráč> [dim]` | U online hráče ukáže pro každé pravidlo, jestli by ho pustilo a proč (nic nemění). |
 | `/dimaccess list <hráč>` | Co má hráč odemčeno. |
 | `/dimaccess grant <hráč> <dim>` | Ručně odemkne dimenzi. |
 | `/dimaccess revoke <hráč> <dim\|all>` | Odebere odemčení. |
 | `/dimaccess reload` | Znovu načte config. |
 
 Hráče lze zadat i offline, pokud už někdy byl na serveru.
+
+## Mod jako by nefungoval?
+
+1. **`/dimaccess check <tvoje jméno>`**: ukáže u každé dimenze, jestli tě pustí a proč.
+   „obchvat: OP (opsBypass=true)“ znamená, že se kontrola na tebe vůbec nevztahuje.
+   Vyzkoušej to s `opsBypass=false` nebo jako hráč bez OP.
+2. **`/dimaccess rules`**: první řádek musí říkat „Hlavní kontrola: aktivní“. Pod ním jsou vypsané chyby
+   v configu (překlep v názvu předmětu, dimenze, která neexistuje).
+3. **`/dimaccess dims`**: zkontroluj, že `dimensionId` v pravidlech odpovídají skutečným ID na serveru.
 
 ## Jak to funguje
 
@@ -133,7 +146,7 @@ Všechno na skutečném dedikovaném serveru **Forge 1.7.10-10.13.4.1614** (Java
 headless klienti přes síťový protokol 1.7.10 včetně FML handshake, takže portály spouštěla stejná
 serverová logika jako u normálního hráče. Testy jsou ve složce [`test/`](test/).
 
-**Vanilla a obecné chování: 47/47 kontrol.** [`test/e2e-test.js`](test/e2e-test.js) ověřuje:
+**Vanilla a obecné chování: 54/54 kontrol.** [`test/e2e-test.js`](test/e2e-test.js) ověřuje:
 - hráč bez předmětu neprojde Nether portálem, který zapálil jiný hráč, a dostane jednu zprávu;
 - hráč s předmětem projde, dostane zprávu o odemčení a předmět mu zůstane;
 - po odemčení projde bez předmětu, `revoke` ho znovu zablokuje, `grant` ho pustí;
@@ -143,8 +156,10 @@ serverová logika jako u normálního hráče. Testy jsou ve složce [`test/`](t
 - 11 s stání v End portálu = 3 zprávy (ne stovky);
 - přesun stylem modů přes `transferPlayerToDimension`, přímé `travelToDimension`, styl Runic
   Dungeons a ruční přenos mimo obě metody (záložní kontrola hráče vrátí);
-- OP obchvat (bez odemčení), návrat do Overworldu bez omezení;
-- `/dimaccess` rules / dims / list / grant / revoke / reload, hlášení neznámého předmětu;
+- OP je ve výchozím stavu blokovaný jako ostatní; s `opsBypass=true` projde, dostane o tom zprávu a nic se mu
+  neodemkne; návrat do Overworldu bez omezení;
+- `/dimaccess` rules / dims / check / list / grant / revoke / reload; hlášení neznámého předmětu
+  a neexistující dimenze, včetně upozornění pro OP po přihlášení;
 - odemčení přežije restart serveru (ověřeno ručně po testu).
 
 **Skutečné mody: 12 portálů z 9 modů.** [`test/e2e-mods.js`](test/e2e-mods.js) má u každého portálu
@@ -195,7 +210,7 @@ Potřeba je JDK 21 (spouští Gradle) a JDK 8 (kompilace; když chybí, Gradle s
 JAVA_HOME=<cesta k JDK 21> ./gradlew build
 ```
 
-Výsledek je `build/libs/DimensionControl-1.0.0.jar`. Verze `-dev.jar` je jen pro vývojové prostředí.
+Výsledek je `build/libs/DimensionControl-1.0.1.jar`. Verze `-dev.jar` je jen pro vývojové prostředí.
 Build používá RetroFuturaGradle 1.4.9 a Gradle 8.14.3.
 
 ## Testy

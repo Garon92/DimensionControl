@@ -10,6 +10,7 @@ import net.minecraft.command.CommandException;
 import net.minecraft.command.ICommandSender;
 import net.minecraft.command.WrongUsageException;
 import net.minecraft.entity.player.EntityPlayerMP;
+import net.minecraft.item.ItemStack;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.util.ChatComponentText;
 import net.minecraft.world.WorldServer;
@@ -17,12 +18,14 @@ import net.minecraftforge.common.DimensionManager;
 
 import com.mojang.authlib.GameProfile;
 
+import cpw.mods.fml.common.registry.GameData;
+
 /**
- * /dimaccess rules | dims | list &lt;player&gt; | grant &lt;player&gt; &lt;dim&gt; | revoke &lt;player&gt; &lt;dim|all&gt; | reload
+ * /dimaccess rules | dims | check &lt;player&gt; [dim] | list &lt;player&gt; | grant &lt;player&gt; &lt;dim&gt; | revoke &lt;player&gt; &lt;dim|all&gt; | reload
  */
 public class CommandDimAccess extends CommandBase {
 
-    private static final String USAGE = "/dimaccess <rules | dims | list <hráč> | grant <hráč> <dim> | revoke <hráč> <dim|all> | reload>";
+    private static final String USAGE = "/dimaccess <rules | dims | check <hráč> [dim] | list <hráč> | grant <hráč> <dim> | revoke <hráč> <dim|all> | reload>";
 
     @Override
     public String getCommandName() {
@@ -50,11 +53,11 @@ public class CommandDimAccess extends CommandBase {
         } else if ("dims".equals(sub)) {
             listDimensions(sender);
         } else if ("reload".equals(sub)) {
-            List<String> problems = DCConfig.reload();
+            DCConfig.reload();
             send(sender, "§aConfig znovu načten, pravidel: " + DCConfig.getRules().size());
-            for (String problem : problems) {
-                send(sender, "§c" + problem);
-            }
+            AdminNotices.sendProblems(sender);
+        } else if ("check".equals(sub) && (args.length == 2 || args.length == 3)) {
+            check(sender, getPlayer(sender, args[1]), args.length == 3 ? parseInt(sender, args[2]) : null);
         } else if ("list".equals(sub) && args.length == 2) {
             GameProfile profile = profile(args[1]);
             Set<Integer> dims = UnlockData.getUnlocked(profile.getId());
@@ -84,14 +87,14 @@ public class CommandDimAccess extends CommandBase {
     @Override
     public List addTabCompletionOptions(ICommandSender sender, String[] args) {
         if (args.length == 1) {
-            return getListOfStringsMatchingLastWord(args, "rules", "dims", "list", "grant", "revoke", "reload");
+            return getListOfStringsMatchingLastWord(args, "rules", "dims", "check", "list", "grant", "revoke", "reload");
         }
         String sub = args[0].toLowerCase();
-        boolean takesPlayer = "list".equals(sub) || "grant".equals(sub) || "revoke".equals(sub);
+        boolean takesPlayer = "list".equals(sub) || "grant".equals(sub) || "revoke".equals(sub) || "check".equals(sub);
         if (args.length == 2 && takesPlayer) {
             return getListOfStringsMatchingLastWord(args, MinecraftServer.getServer().getAllUsernames());
         }
-        if (args.length == 3 && ("grant".equals(sub) || "revoke".equals(sub))) {
+        if (args.length == 3 && ("grant".equals(sub) || "revoke".equals(sub) || "check".equals(sub))) {
             List<String> options = new ArrayList<String>();
             for (int dim : DCConfig.getRules().keySet()) {
                 options.add(String.valueOf(dim));
@@ -110,6 +113,12 @@ public class CommandDimAccess extends CommandBase {
     }
 
     private static void listRules(ICommandSender sender) {
+        send(
+            sender,
+            "§7Hlavní kontrola: " + (AdminNotices.hooksActive() ? "§aaktivní" : "§cNEAKTIVNÍ")
+                + "§7, OP obchvat: " + (DCConfig.opsBypass ? "§eano" : "ne")
+                + "§7, creative obchvat: " + (DCConfig.creativeBypass ? "§eano" : "ne"));
+        AdminNotices.sendProblems(sender);
         if (DCConfig.getRules().isEmpty()) {
             send(sender, "§eŽádná dimenze není omezená.");
             return;
@@ -123,6 +132,43 @@ public class CommandDimAccess extends CommandBase {
         }
         if (DCConfig.getRule(0) == null && DCConfig.getRules().containsKey(0)) {
             send(sender, "§7Pravidlo pro Overworld se ignoruje (alwaysAllowOverworld=true).");
+        }
+    }
+
+    /** Shows, without changing anything, whether the player would get into each restricted dimension and why. */
+    private static void check(ICommandSender sender, EntityPlayerMP player, Integer onlyDim) {
+        ItemStack held = player.getCurrentEquippedItem();
+        String heldText = held == null ? "nic"
+            : GameData.getItemRegistry().getNameForObject(held.getItem()) + " (meta " + held.getItemDamage() + ")";
+        send(sender, "§eHráč " + player.getCommandSenderName() + "§r drží: " + heldText);
+        if (onlyDim != null && DCConfig.getRule(onlyDim) == null) {
+            send(sender, "§e" + onlyDim + "§r: §aPOVOLENO§r - dimenze není omezená");
+            return;
+        }
+        for (DimensionRule rule : DCConfig.getRules().values()) {
+            if (onlyDim != null && rule.dimensionId != onlyDim) {
+                continue;
+            }
+            String head = "§e" + rule.dimensionId + "§r (" + rule.dimensionName + "): ";
+            switch (AccessManager.evaluate(player, rule.dimensionId)) {
+                case UNRESTRICTED:
+                    send(sender, head + "§aPOVOLENO§r - neomezeno (alwaysAllowOverworld=true)");
+                    break;
+                case BYPASS:
+                    send(sender, head + "§aPOVOLENO§r - obchvat: " + AccessManager.bypassReason(player));
+                    break;
+                case UNLOCKED:
+                    send(sender, head + "§aPOVOLENO§r - trvale odemčeno");
+                    break;
+                case HOLDING_ITEM:
+                    send(sender, head + "§aPOVOLENO§r - drží požadovaný předmět");
+                    break;
+                default:
+                    send(
+                        sender,
+                        head + "§cZAMÍTNUTO§r - potřebuje " + rule.describeItem()
+                            + (rule.getItem() == null ? " §c(ten předmět neexistuje, oprav config)" : ""));
+            }
         }
     }
 
