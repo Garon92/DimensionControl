@@ -18,12 +18,13 @@ public class DimensionRule {
     public final String itemDisplayName;
     public final String message;
     public final boolean unlockAfterFirstEntry;
+    public final boolean consumeItem;
 
     private Item item;
     private boolean resolved;
 
     public DimensionRule(String key, int dimensionId, String dimensionName, String itemId, int meta,
-        String itemDisplayName, String message, boolean unlockAfterFirstEntry) {
+        String itemDisplayName, String message, boolean unlockAfterFirstEntry, boolean consumeItem) {
         this.key = key;
         this.dimensionId = dimensionId;
         this.dimensionName = dimensionName;
@@ -32,6 +33,7 @@ public class DimensionRule {
         this.itemDisplayName = itemDisplayName;
         this.message = message;
         this.unlockAfterFirstEntry = unlockAfterFirstEntry;
+        this.consumeItem = consumeItem;
     }
 
     /** Looks the item up in the registry. Has to run after all mods registered their items. */

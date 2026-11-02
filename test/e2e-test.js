@@ -10,7 +10,7 @@ const L = require('./lib');
 
 L.init(process.argv[2], parseInt(process.argv[3] || '25599', 10));
 const { check, results, cmd, logSize, logSince, waitFor, console_, where, sleep, Bot, DENY, UNLOCK, tp, give, clear,
-  backToOverworld, setGeneral } = L;
+  backToOverworld, setGeneral, setRule, held } = L;
 const CONFIG = L.CONFIG();
 
 async function main() {
@@ -22,6 +22,7 @@ async function main() {
   const spawn = { x: Math.floor(alice.pos.x), y: Math.round(alice.pos.y), z: Math.floor(alice.pos.z) };
   console.log('spawn', spawn, 'dims', alice.dim, bob.dim);
   check('bots joined the overworld', alice.dim === 0 && bob.dim === 0);
+  check('new config: admin notices are off by default', /B:showAdminNotices=false/.test(fs.readFileSync(CONFIG, 'utf8')));
 
   const g = spawn.y; // ground level players stand on
   const px = spawn.x + 6;
@@ -227,6 +228,7 @@ async function main() {
   out = await console_('dimaccess check Bob -1', /ZAMÍTNUTO|POVOLENO/);
   check('T12 /dimaccess check explains the denial', /-1 \(Nether\): ZAMÍTNUTO - potřebuje minecraft:flint_and_steel/.test(out), out.trim().split('\n').pop());
   setGeneral('opsBypass', 'true');
+  setGeneral('showAdminNotices', 'true');
   await console_('dimaccess reload', /Config znovu načten/);
   out = await console_('dimaccess check Bob -1', /ZAMÍTNUTO|POVOLENO/);
   check('T12 /dimaccess check shows the OP bypass', /POVOLENO - obchvat: OP \(opsBypass=true\)/.test(out), out.trim().split('\n').pop());
@@ -284,6 +286,129 @@ async function main() {
   await waitFor(() => alice.chat.some((m) => /neznámý předmět/.test(m)), 5000);
   check('T17 OP gets the config problems on login', alice.chat.some((m) => /Nastavení má problémy/.test(m)) && alice.chat.some((m) => /neznámý předmět 'nosuchmod:nothing'/.test(m)), JSON.stringify(alice.chat));
   await console_('deop Alice', /De-opped Alice/);
+
+  // ---- T18: consumeItem + unlock: the item is taken once, then the dimension is open ----
+  const PAID = /tě stál/;
+  const DIAMOND = 'minecraft:diamond';
+  const enterPortal = async (bot) => {
+    await tp(bot, ...front);
+    await sleep(3000); // let the portal cooldown run out
+    await tp(bot, ...inside);
+  };
+  const enterAndWait = async (bot) => {
+    await enterPortal(bot);
+    await waitFor(() => bot.dim === -1, 10000, `${bot.name} in the Nether`);
+    await sleep(500);
+  };
+  setRule('nether', 'S:item', DIAMOND);
+  setRule('nether', 'B:consumeItem', 'true');
+  setRule('nether', 'B:unlockAfterFirstEntry', 'true');
+  await console_('dimaccess reload', /Config znovu načten/);
+  out = await console_('dimaccess rules', /\(Nether\): minecraft:diamond/);
+  check('T18 /dimaccess rules shows the consumption', /\(Nether\): minecraft:diamond.*spotřeba předmětu: ano/.test(out));
+  await console_('dimaccess revoke Bob all', /odebráno/);
+  await clear(bob);
+  await give(bob, DIAMOND);
+  out = await console_('dimaccess check Bob -1', /POVOLENO|ZAMÍTNUTO/);
+  check('T18 /dimaccess check warns about the consumption', /POVOLENO - drží požadovaný předmět \(1 kus se spotřebuje\)/.test(out), out.trim().split('\n').pop());
+  check('T18 /dimaccess check takes nothing', held(bob) === 1);
+  c = bob.chat.length;
+  await enterAndWait(bob);
+  check('T18 consume+unlock: enters with the last item', bob.dim === -1);
+  check('T18 consume+unlock: item is gone', held(bob) === 0, `held=${held(bob)}`);
+  check('T18 consume+unlock: told about the payment and the unlock', bob.messagesSince(c, PAID).length === 1 && bob.messagesSince(c, UNLOCK).length === 1, JSON.stringify(bob.chat.slice(c)));
+  await backToOverworld(bob);
+  c = bob.chat.length;
+  await enterAndWait(bob);
+  check('T18 consume+unlock: next entry needs no item', bob.dim === -1 && bob.messagesSince(c, PAID).length === 0);
+  await backToOverworld(bob);
+
+  // ---- T19: consumeItem without unlock: every entry costs exactly one, also through both hooks ----
+  setRule('nether', 'B:unlockAfterFirstEntry', 'false');
+  await console_('dimaccess reload', /Config znovu načten/);
+  await console_('dimaccess revoke Bob all', /odebráno/);
+  await give(bob, DIAMOND, 2);
+  await enterAndWait(bob);
+  check('T19 portal (both hooks) takes exactly one', bob.dim === -1 && held(bob) === 1, `held=${held(bob)}`);
+  await backToOverworld(bob);
+  await enterAndWait(bob);
+  check('T19 the last item is enough', bob.dim === -1 && held(bob) === 0, `held=${held(bob)}`);
+  await backToOverworld(bob);
+  await sleep(5500); // message cooldown
+  c = bob.chat.length;
+  await enterPortal(bob);
+  await sleep(6000);
+  check('T19 without an item the player stays out', bob.dim === 0 && bob.messagesSince(c, DENY).length === 1);
+
+  // ---- T20: the other ways of teleporting ----
+  await tp(bob, ...front);
+  await give(bob, DIAMOND, 3);
+  cmd('dctest transfer Bob -1');
+  await waitFor(() => bob.dim === -1, 5000, 'Bob transferred');
+  await sleep(500);
+  check('T20 SCM transfer (one hook) takes exactly one', held(bob) === 2, `held=${held(bob)}`);
+  await backToOverworld(bob);
+  await tp(bob, ...front);
+  cmd('dctest runic Bob -1');
+  await waitFor(() => bob.dim === -1, 5000, 'Bob through the Runic-style portal');
+  await sleep(500);
+  check('T20 Runic-style portal takes exactly one', held(bob) === 1, `held=${held(bob)}`);
+  await backToOverworld(bob);
+  await tp(bob, ...front);
+  cmd('dctest manual Bob -1');
+  await waitFor(() => bob.dim === -1, 5000, 'Bob moved by hand');
+  await sleep(1500);
+  check('T20 hand-written transfer takes the last one and stays', bob.dim === -1 && held(bob) === 0, `dim=${bob.dim} held=${held(bob)}`);
+  await backToOverworld(bob);
+  await tp(bob, ...front);
+  const r1 = bob.respawns.length;
+  cmd('dctest manual Bob -1');
+  await waitFor(() => bob.respawns.length >= r1 + 2 && bob.dim === 0, 5000, 'Bob sent back');
+  check('T20 hand-written transfer without an item is sent back', bob.dim === 0);
+
+  // ---- T21: nothing is taken from players who do not pay ----
+  await give(bob, 'minecraft:flint_and_steel');
+  await enterPortal(bob);
+  await sleep(6000);
+  check('T21 wrong item: blocked and kept', bob.dim === 0 && bob.inv[36] === 259);
+  await clear(bob);
+  await give(bob, DIAMOND);
+  cmd('gamemode 1 Bob');
+  await sleep(500);
+  await enterAndWait(bob);
+  check('T21 creative: enters and keeps the item', bob.dim === -1 && held(bob) === 1, `held=${held(bob)}`);
+  await backToOverworld(bob);
+  cmd('gamemode 0 Bob');
+  setGeneral('opsBypass', 'true');
+  await console_('dimaccess reload', /Config znovu načten/);
+  await console_('op Bob', /Opped Bob/);
+  await enterAndWait(bob);
+  check('T21 OP with bypass: enters and keeps the item', bob.dim === -1 && held(bob) === 1, `held=${held(bob)}`);
+  await backToOverworld(bob);
+  await console_('deop Bob', /De-opped Bob/);
+  setGeneral('opsBypass', 'false');
+
+  // ---- T22: with showAdminNotices=false neither notice appears, problems are still available on request ----
+  setGeneral('showAdminNotices', 'false');
+  await console_('dimaccess reload', /Config znovu načten/);
+  await console_('op Alice', /Opped Alice/);
+  alice.quit();
+  await sleep(1500);
+  alice = new Bot('Alice');
+  await alice.ready();
+  await sleep(2000);
+  check('T22 notices off: nothing on login despite config problems', !alice.chat.some((m) => /Nastavení má problémy/.test(m)), JSON.stringify(alice.chat));
+  out = await console_('dimaccess rules', /neznámý předmět/);
+  check('T22 notices off: /dimaccess rules still lists the problems', /neznámý předmět 'nosuchmod:nothing'/.test(out));
+  await console_('deop Alice', /De-opped Alice/);
+  setGeneral('opsBypass', 'true');
+  await console_('dimaccess reload', /Config znovu načten/);
+  await console_('op Bob', /Opped Bob/);
+  c = bob.chat.length;
+  await enterAndWait(bob);
+  check('T22 notices off: bypass works silently', bob.dim === -1 && !bob.chat.slice(c).some((m) => /obchvat/.test(m)), JSON.stringify(bob.chat.slice(c)));
+  await backToOverworld(bob);
+  await console_('deop Bob', /De-opped Bob/);
 
   check('no bot was kicked', !alice.kicked && !bob.kicked, `${alice.kicked || ''} ${bob.kicked || ''}`);
 

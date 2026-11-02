@@ -1,10 +1,10 @@
 # Dimension Control (Forge 1.7.10)
 
 Serverový mod: do zvolených dimenzí se hráč dostane, jen když drží v ruce nastavený předmět.
-Kontrola probíhá u každého hráče zvlášť a předmět se nespotřebuje. Volitelně si hráč po prvním
-vstupu dimenzi trvale odemkne a předmět pak už nepotřebuje.
+Kontrola probíhá u každého hráče zvlášť. Standardně se předmět nespotřebuje, volitelně se při vstupu vezme
+1 kus. Volitelně si hráč po prvním vstupu dimenzi trvale odemkne a předmět pak už nepotřebuje.
 
-**Hotový mod:** [`dist/DimensionControl-1.0.1.jar`](dist/DimensionControl-1.0.1.jar). Jar patří do složky `mods` na serveru.
+**Hotový mod:** [`dist/DimensionControl-1.1.0.jar`](dist/DimensionControl-1.1.0.jar). Jar patří do složky `mods` na serveru.
 Hráči ho nepotřebují, ale nevadí, když ho mají.
 
 ## Co umí
@@ -20,9 +20,11 @@ Hráči ho nepotřebují, ale nevadí, když ho mají.
   i restart serveru.
 - Zablokovaného hráče, který stojí v portálu, vrátí na poslední bezpečné místo před portálem.
   Hlavně kvůli End portálu, pod kterým bývá láva.
-- Operátoři (OP) se kontrolují stejně jako ostatní. Obchvat pro OP jde zapnout (`opsBypass=true`) a hráče,
-  kterého pustil jen obchvat, na to mod v chatu upozorní.
-- Chyby v configu (neznámý předmět, neexistující dimenze) se OP ukážou v chatu po přihlášení.
+- Spotřeba předmětu (`consumeItem=true`): při vstupu se hráči vezme 1 kus z ruky. Nastavuje se pro každou
+  dimenzi zvlášť, viz [Spotřeba předmětu](#spotřeba-předmětu).
+- Operátoři (OP) se kontrolují stejně jako ostatní. Obchvat pro OP jde zapnout (`opsBypass=true`).
+- Chyby v configu (neznámý předmět, neexistující dimenze) vypíše `/dimaccess rules` a log. Volitelně je OP
+  uvidí i v chatu po přihlášení (`showAdminNotices=true`).
 
 ## Konfigurace
 
@@ -43,6 +45,7 @@ dimensions {
         S:itemName=
         S:message=&cDo dimenze &e%dim% &cse dostaneš jen s předmětem &e%item% &cv ruce.
         B:unlockAfterFirstEntry=true
+        B:consumeItem=false
     }
 }
 ```
@@ -56,6 +59,7 @@ dimensions {
 | `itemName` | Vlastní název pro `%item%`. Prázdné = každý hráč uvidí název v jazyce svého klienta. |
 | `message` | Chybová zpráva. Barvy přes `&` (`&c`, `&e`…), proměnné `%dim%`, `%item%`, `%player%`. |
 | `unlockAfterFirstEntry` | `true` = po prvním vstupu s předmětem trvale odemčeno. |
+| `consumeItem` | `true` = při vstupu se vezme 1 kus předmětu z ruky. Výchozí `false`. |
 
 Obecná nastavení (`general`):
 
@@ -70,10 +74,24 @@ Obecná nastavení (`general`):
 | `fallbackCheck` | `true` | Záložní kontrola pro mody, které by hlavní kontrolu obešly. |
 | `logBlockedAttempts` | `false` | Zapisovat každé zablokování do logu. |
 | `unlockMessage` | `&aDimenze &e%dim% &aje pro tebe nyní trvale odemčena.` | Zpráva po odemčení, prázdné = žádná. |
+| `consumeMessage` | `&7Vstup do &e%dim% &7tě stál &e%item%&7.` | Zpráva po spotřebování předmětu, prázdné = žádná. |
+| `showAdminNotices` | `false` | `true` = OP uvidí po přihlášení chyby v configu a hráč dostane zprávu, když ho pustil jen OP nebo creative obchvat. |
 
 Změny configu se načtou příkazem `/dimaccess reload` bez restartu. Neznámý předmět nebo dimenze, která
-na serveru neexistuje, se ohlásí v logu, po `/dimaccess reload` a OP po přihlášení. Do dimenze s neznámým
+na serveru neexistuje, se ohlásí v logu, po `/dimaccess reload` a v `/dimaccess rules`. Do dimenze s neznámým
 předmětem se s předmětem dostat nedá, dokud se chyba neopraví.
+
+### Spotřeba předmětu
+
+| `consumeItem` | `unlockAfterFirstEntry` | Co se stane |
+|---|---|---|
+| `false` | `true` | Předmět stačí ukázat jednou, zůstane hráči. Dimenze je pak odemčená. |
+| `false` | `false` | Předmět musí držet při každém vstupu, zůstane mu. |
+| `true` | `true` | Předmět se vezme jen při prvním vstupu a dimenze je pak natrvalo odemčená. **Doporučeno pro předměty z questů:** kdo ho jednou odevzdal, nemůže se zaseknout. |
+| `true` | `false` | Každý vstup stojí 1 kus. Když dojdou, hráč se dovnitř nedostane, takže předmět musí jít znovu získat. |
+
+Bere se vždy právě 1 kus z vybraného slotu. Nic se nebere hráčům, které pustil obchvat nebo trvalé odemčení,
+hráčům v creative a zablokovaným hráčům.
 
 ### ID dimenzí modů z vašeho serveru
 
@@ -97,7 +115,7 @@ příkazem `/dimaccess dims`**, protože ID jde v configu modů změnit.
 
 | Příkaz | Co dělá |
 |---|---|
-| `/dimaccess rules` | Vypíše pravidla, stav hlavní kontroly, OP obchvatu a chyby v configu. |
+| `/dimaccess rules` | Vypíše pravidla (včetně spotřeby), stav hlavní kontroly, OP obchvatu a chyby v configu. |
 | `/dimaccess dims` | Vypíše všechny dimenze na serveru s jejich ID a pravidly. |
 | `/dimaccess check <hráč> [dim]` | U online hráče ukáže pro každé pravidlo, jestli by ho pustilo a proč (nic nemění). |
 | `/dimaccess list <hráč>` | Co má hráč odemčeno. |
@@ -146,7 +164,7 @@ Všechno na skutečném dedikovaném serveru **Forge 1.7.10-10.13.4.1614** (Java
 headless klienti přes síťový protokol 1.7.10 včetně FML handshake, takže portály spouštěla stejná
 serverová logika jako u normálního hráče. Testy jsou ve složce [`test/`](test/).
 
-**Vanilla a obecné chování: 54/54 kontrol.** [`test/e2e-test.js`](test/e2e-test.js) ověřuje:
+**Vanilla a obecné chování: 75/75 kontrol.** [`test/e2e-test.js`](test/e2e-test.js) ověřuje:
 - hráč bez předmětu neprojde Nether portálem, který zapálil jiný hráč, a dostane jednu zprávu;
 - hráč s předmětem projde, dostane zprávu o odemčení a předmět mu zůstane;
 - po odemčení projde bez předmětu, `revoke` ho znovu zablokuje, `grant` ho pustí;
@@ -156,14 +174,19 @@ serverová logika jako u normálního hráče. Testy jsou ve složce [`test/`](t
 - 11 s stání v End portálu = 3 zprávy (ne stovky);
 - přesun stylem modů přes `transferPlayerToDimension`, přímé `travelToDimension`, styl Runic
   Dungeons a ruční přenos mimo obě metody (záložní kontrola hráče vrátí);
-- OP je ve výchozím stavu blokovaný jako ostatní; s `opsBypass=true` projde, dostane o tom zprávu a nic se mu
-  neodemkne; návrat do Overworldu bez omezení;
+- OP je ve výchozím stavu blokovaný jako ostatní; s `opsBypass=true` projde a nic se mu neodemkne;
+  návrat do Overworldu bez omezení;
+- spotřeba: přes portál (oba hooky), `transferPlayerToDimension`, styl Runic Dungeons i ruční přenos se vezme
+  právě 1 kus a stačí i poslední kus ve stacku; s odemčením jen poprvé; špatný předmět, creative a OP obchvat
+  o nic nepřijdou;
+- hlášky `showAdminNotices`: ve výchozím stavu vypnuté, po zapnutí se ukážou;
 - `/dimaccess` rules / dims / check / list / grant / revoke / reload; hlášení neznámého předmětu
-  a neexistující dimenze, včetně upozornění pro OP po přihlášení;
+  a neexistující dimenze;
 - odemčení přežije restart serveru (ověřeno ručně po testu).
 
 **Skutečné mody: 12 portálů z 9 modů.** [`test/e2e-mods.js`](test/e2e-mods.js) má u každého portálu
-dvě kontroly: hráč bez předmětu je zablokován a hráč s předmětem projde.
+dvě kontroly: hráč bez předmětu je zablokován a hráč s předmětem projde. Se zapnutým `consumeItem` se navíc
+u 11 portálů ověřilo, že se vezme právě 1 kus (Glacia ne, ta shazuje server, viz níže).
 
 | Mod | Portál | Kudy jde přesun | Výsledek |
 |---|---|---|---|
@@ -210,7 +233,7 @@ Potřeba je JDK 21 (spouští Gradle) a JDK 8 (kompilace; když chybí, Gradle s
 JAVA_HOME=<cesta k JDK 21> ./gradlew build
 ```
 
-Výsledek je `build/libs/DimensionControl-1.0.1.jar`. Verze `-dev.jar` je jen pro vývojové prostředí.
+Výsledek je `build/libs/DimensionControl-1.1.0.jar`. Verze `-dev.jar` je jen pro vývojové prostředí.
 Build používá RetroFuturaGradle 1.4.9 a Gradle 8.14.3.
 
 ## Testy

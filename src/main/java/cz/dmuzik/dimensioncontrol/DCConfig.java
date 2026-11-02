@@ -25,6 +25,8 @@ public final class DCConfig {
     public static boolean fallbackCheck = true;
     public static boolean logBlocked = false;
     public static String unlockMessage = "";
+    public static String consumeMessage = "";
+    public static boolean showAdminNotices = false;
 
     private static final Map<String, Object[]> DEFAULT_RULES = defaultRules();
 
@@ -150,6 +152,18 @@ public final class DCConfig {
             "&aDimenze &e%dim% &aje pro tebe nyní trvale odemčena.",
             "Zpráva po prvním úspěšném vstupu u pravidel s unlockAfterFirstEntry=true. Prázdné = žádná zpráva.\n"
                 + "Proměnné: %dim% (název dimenze), %item% (předmět), %player% (hráč).");
+        consumeMessage = config.getString(
+            "consumeMessage",
+            CATEGORY_GENERAL,
+            "&7Vstup do &e%dim% &7tě stál &e%item%&7.",
+            "Zpráva po spotřebování předmětu u pravidel s consumeItem=true. Prázdné = žádná zpráva.\n"
+                + "Proměnné: %dim%, %item%, %player%.");
+        showAdminNotices = config.getBoolean(
+            "showAdminNotices",
+            CATEGORY_GENERAL,
+            false,
+            "Upozornění v chatu: operátorům po přihlášení chyby v tomto configu (např. překlep v názvu předmětu)\n"
+                + "a hráči, kterého pustil jen OP nebo creative obchvat. /dimaccess rules a log ukážou chyby vždy.");
 
         config.setCategoryComment(
             CATEGORY_DIMENSIONS,
@@ -225,6 +239,12 @@ public final class DCConfig {
             true,
             "Po prvním úspěšném vstupu s předmětem si hráč dimenzi trvale odemkne a předmět už nepotřebuje.\n"
                 + "Odemčení přežije smrt i restart serveru. Spravuje se příkazem /dimaccess.");
+        boolean consume = config.getBoolean(
+            "consumeItem",
+            category,
+            false,
+            "Při vstupu se hráči vezme 1 kus předmětu z ruky. S unlockAfterFirstEntry=true jen při prvním vstupu\n"
+                + "(potom už je dimenze odemčená), s false při každém vstupu.");
 
         if (!enabled) {
             return null;
@@ -233,7 +253,7 @@ public final class DCConfig {
             loadProblems.add("Pravidlo '" + key + "': předmět '" + item + "' není ve tvaru modid:item - pravidlo se ignoruje");
             return null;
         }
-        return new DimensionRule(key, dimensionId, dimensionName, item.trim(), meta, itemName, message, unlock);
+        return new DimensionRule(key, dimensionId, dimensionName, item.trim(), meta, itemName, message, unlock, consume);
     }
 
     private static void addDefaultRules() {

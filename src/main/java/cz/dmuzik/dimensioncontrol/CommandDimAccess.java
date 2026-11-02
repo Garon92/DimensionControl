@@ -128,7 +128,8 @@ public class CommandDimAccess extends CommandBase {
                 sender,
                 "§e" + rule.dimensionId + " §r(" + rule.dimensionName + "): " + rule.describeItem()
                     + (rule.getItem() == null ? " §c[neznámý předmět]§r" : "")
-                    + ", trvalé odemčení: " + (rule.unlockAfterFirstEntry ? "ano" : "ne"));
+                    + ", trvalé odemčení: " + (rule.unlockAfterFirstEntry ? "ano" : "ne")
+                    + ", spotřeba předmětu: " + (rule.consumeItem ? "ano" : "ne"));
         }
         if (DCConfig.getRule(0) == null && DCConfig.getRules().containsKey(0)) {
             send(sender, "§7Pravidlo pro Overworld se ignoruje (alwaysAllowOverworld=true).");
@@ -161,7 +162,10 @@ public class CommandDimAccess extends CommandBase {
                     send(sender, head + "§aPOVOLENO§r - trvale odemčeno");
                     break;
                 case HOLDING_ITEM:
-                    send(sender, head + "§aPOVOLENO§r - drží požadovaný předmět");
+                    send(
+                        sender,
+                        head + "§aPOVOLENO§r - drží požadovaný předmět"
+                            + (rule.consumeItem && !player.capabilities.isCreativeMode ? " (1 kus se spotřebuje)" : ""));
                     break;
                 default:
                     send(

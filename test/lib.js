@@ -133,11 +133,18 @@ class Bot {
       this.sendPosition();
     });
     this.inv = {};
+    this.counts = {};
     this.client.on('set_slot', (p) => {
-      if (p.windowId === 0) this.inv[p.slot] = p.item.blockId;
+      if (p.windowId !== 0) return;
+      this.inv[p.slot] = p.item.blockId;
+      this.counts[p.slot] = p.item.blockId === -1 ? 0 : p.item.itemCount;
     });
     this.client.on('window_items', (p) => {
-      if (p.windowId === 0) p.items.forEach((it, i) => (this.inv[i] = it.blockId));
+      if (p.windowId !== 0) return;
+      p.items.forEach((it, i) => {
+        this.inv[i] = it.blockId;
+        this.counts[i] = it.blockId === -1 ? 0 : it.itemCount;
+      });
     });
     this.client.on('chat', (p) => {
       try {
@@ -221,8 +228,8 @@ const ITEM_IDS = { 'minecraft:flint_and_steel': 259, 'minecraft:ender_eye': 381,
 const HELD_SLOT = 36; // hotbar slot 0 in the player inventory window
 
 // 1.7.10 /give drops the item at the player's feet; wait until it was picked up into the hotbar, then hold it
-async function give(bot, item) {
-  cmd(`give ${bot.name} ${item}`);
+async function give(bot, item, count = 1) {
+  cmd(`give ${bot.name} ${item} ${count}`);
   const id = ITEM_IDS[item];
   const slot = await waitFor(() => {
     for (let s = HELD_SLOT; s < HELD_SLOT + 9; s++) if (bot.inv[s] === id) return s;
@@ -246,6 +253,19 @@ async function backToOverworld(bot) {
   await sleep(500);
 }
 
+// Number of items in the held slot
+function held(bot) {
+  return bot.counts[HELD_SLOT] || 0;
+}
+
+// Changes one value of one rule, e.g. setRule('nether', 'B:consumeItem', 'true')
+function setRule(rule, key, value) {
+  const cfg = fs.readFileSync(CONFIG, 'utf8');
+  const start = cfg.indexOf(`    ${rule} {`);
+  const tail = cfg.slice(start).replace(new RegExp(`(${key}=)\\S*`), `$1${value}`);
+  fs.writeFileSync(CONFIG, cfg.slice(0, start) + tail);
+}
+
 function setGeneral(key, value) {
   let cfg = fs.readFileSync(CONFIG, 'utf8');
   cfg = cfg.replace(new RegExp(`(${key}=)\\S*`), `$1${value}`);
@@ -255,5 +275,5 @@ function setGeneral(key, value) {
 
 module.exports = {
   init, check, results, cmd, logSize, logSince, waitFor, console_, where, sleep, Bot, DENY, UNLOCK, tp, give, clear,
-  backToOverworld, setGeneral, num, CONFIG: () => CONFIG,
+  backToOverworld, setGeneral, setRule, held, num, CONFIG: () => CONFIG,
 };

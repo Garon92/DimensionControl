@@ -19,7 +19,8 @@ public final class AdminNotices {
 
     /** Operators get the list of problems when they log in, so a broken config does not go unnoticed. */
     public static void onLogin(EntityPlayerMP player) {
-        if (AccessManager.isOp(player) && (!DCConfig.getProblems().isEmpty() || !hooksActive())) {
+        if (DCConfig.showAdminNotices && AccessManager.isOp(player)
+            && (!DCConfig.getProblems().isEmpty() || !hooksActive())) {
             send(player, "§6[DimensionControl] §eNastavení má problémy:");
             sendProblems(player);
         }

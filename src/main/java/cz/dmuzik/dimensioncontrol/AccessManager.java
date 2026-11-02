@@ -21,6 +21,11 @@ public final class AccessManager {
 
     private static final Map<UUID, Integer> lastMessageTick = new HashMap<UUID, Integer>();
     private static final Map<UUID, Integer> lastBypassNoticeTick = new HashMap<UUID, Integer>();
+    /**
+     * Dimension and tick of the entry a player just paid for. travelToDimension calls transferPlayerToDimension, so
+     * one teleport passes both hooks; the second one must not ask for the item again.
+     */
+    private static final Map<UUID, int[]> paidEntries = new HashMap<UUID, int[]>();
     private static int bypassDepth;
 
     private AccessManager() {}
@@ -30,6 +35,9 @@ public final class AccessManager {
      */
     public static boolean allowTransfer(EntityPlayerMP player, int targetDim) {
         if (bypassDepth > 0 || !isRealPlayer(player) || player.dimension == targetDim) {
+            return true;
+        }
+        if (usePaidEntry(player, targetDim)) {
             return true;
         }
         Decision decision = decide(player, targetDim);
@@ -89,7 +97,28 @@ public final class AccessManager {
                 player.addChatMessage(Messages.format(DCConfig.unlockMessage, rule, player));
             }
         }
+        if (rule.consumeItem && !player.capabilities.isCreativeMode) {
+            consumeHeldItem(player, rule);
+        }
         return Decision.HOLDING_ITEM;
+    }
+
+    private static void consumeHeldItem(EntityPlayerMP player, DimensionRule rule) {
+        player.inventory.decrStackSize(player.inventory.currentItem, 1);
+        player.inventoryContainer.detectAndSendChanges();
+        paidEntries.put(
+            player.getUniqueID(),
+            new int[] { rule.dimensionId, MinecraftServer.getServer().getTickCounter() });
+        DimensionControl.LOG
+            .info("{} paid 1 {} to enter dimension {}", player.getCommandSenderName(), rule.itemId, rule.dimensionId);
+        if (!DCConfig.consumeMessage.isEmpty()) {
+            player.addChatMessage(Messages.format(DCConfig.consumeMessage, rule, player));
+        }
+    }
+
+    private static boolean usePaidEntry(EntityPlayerMP player, int dimension) {
+        int[] paid = paidEntries.remove(player.getUniqueID());
+        return paid != null && paid[0] == dimension && paid[1] == MinecraftServer.getServer().getTickCounter();
     }
 
     /** Why the player skips the checks, or null when they do not. */
@@ -127,15 +156,20 @@ public final class AccessManager {
     public static void forget(UUID id) {
         lastMessageTick.remove(id);
         lastBypassNoticeTick.remove(id);
+        paidEntries.remove(id);
     }
 
     public static void clear() {
         lastMessageTick.clear();
         lastBypassNoticeTick.clear();
+        paidEntries.clear();
     }
 
     /** Tells the player they only got in because of a bypass, so an admin testing the mod is not misled. */
     private static void onBypass(EntityPlayerMP player, DimensionRule rule) {
+        if (!DCConfig.showAdminNotices) {
+            return;
+        }
         int now = MinecraftServer.getServer().getTickCounter();
         Integer last = lastBypassNoticeTick.get(player.getUniqueID());
         if (last != null && now - last < DCConfig.messageCooldownTicks && now >= last) {

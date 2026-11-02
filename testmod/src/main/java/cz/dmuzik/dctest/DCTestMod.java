@@ -96,10 +96,10 @@ public class DCTestMod {
                     LOG.info("DCTEST placed {}:{} at {} {} {}", args[4], meta, args[1], args[2], args[3]);
                     return;
                 }
-                if (args.length == 3 && "hold".equals(args[0])) {
+                if ((args.length == 3 || args.length == 4) && "hold".equals(args[0])) {
                     EntityPlayerMP player = getPlayer(sender, args[1]);
                     Item item = GameData.getItemRegistry().getObject(args[2]);
-                    player.inventory.setInventorySlotContents(player.inventory.currentItem, new ItemStack(item));
+                    player.inventory.setInventorySlotContents(player.inventory.currentItem, new ItemStack(item, args.length == 4 ? parseInt(sender, args[3]) : 1));
                     player.inventoryContainer.detectAndSendChanges();
                     LOG.info("DCTEST hold {} {}", player.getCommandSenderName(), args[2]);
                     return;

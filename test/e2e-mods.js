@@ -47,7 +47,7 @@ async function main() {
   // One rule per mod dimension: hold a diamond
   let rules = '\ndimensions {\n';
   for (const id of [...new Set(PORTALS.map((p) => p.dimId))]) {
-    rules += `    mod_${String(id).replace('-', 'm')} {\n        I:dimensionId=${id}\n        S:item=${ITEM}\n        B:unlockAfterFirstEntry=false\n    }\n`;
+    rules += `    mod_${String(id).replace('-', 'm')} {\n        I:dimensionId=${id}\n        S:item=${ITEM}\n        B:unlockAfterFirstEntry=false\n        B:consumeItem=true\n    }\n`;
   }
   fs.appendFileSync(CONFIG, rules + '}\n');
   L.setGeneral('logBlockedAttempts', 'true');
@@ -67,8 +67,6 @@ async function main() {
   const sz = Math.floor(alice.pos.z);
   await clear(alice);
   await clear(bob);
-  cmd(`dctest hold Alice ${ITEM}`);
-  await waitFor(() => alice.inv[36] === 264, 5000, 'Alice holding a diamond');
 
   let i = 0;
   for (const p of PORTALS) {
@@ -100,7 +98,9 @@ async function main() {
     }
     await tp(bob, x + 0.5, g, z + 5.5); // out of the way
 
-    // Alice: holds a diamond
+    // Alice: holds three diamonds, entering must cost exactly one (mods reach the hooks in different ways)
+    cmd(`dctest hold Alice ${ITEM} 3`);
+    await waitFor(() => alice.inv[36] === 264 && alice.counts[36] === 3, 5000, 'Alice holding 3 diamonds');
     await tp(alice, ...front);
     await sleep(800);
     if (p.use === 'stand') {
@@ -112,6 +112,8 @@ async function main() {
     // The first visit generates terrain and portals, which can stall the server for a while
     const wa = await where('Alice', 120000);
     check(`${p.mod}: allowed with the item (dim ${p.dimId})`, wa.dim === p.dimId && alice.dim === p.dimId, `server dim=${wa.dim} client dim=${alice.dim}`);
+    await sleep(500);
+    check(`${p.mod}: took exactly one item`, L.held(alice) === 2, `held=${L.held(alice)}`);
     if (wa.dim !== 0) {
       cmd('dctest manual Alice 0');
       await waitFor(() => alice.dim === 0, 60000, 'Alice back');
