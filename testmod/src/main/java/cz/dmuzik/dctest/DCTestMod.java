@@ -13,6 +13,7 @@ import net.minecraft.network.play.server.S07PacketRespawn;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.management.ServerConfigurationManager;
 import net.minecraft.util.ChatComponentText;
+import net.minecraft.tileentity.TileEntityCommandBlock;
 import net.minecraft.world.Teleporter;
 import net.minecraft.world.WorldServer;
 
@@ -37,6 +38,7 @@ import cpw.mods.fml.common.registry.GameData;
  * endportal = builds a 3x3 End portal over lava, where = prints a player's state to the log,
  * mods = prints the mod list (so a test client can claim the same mods), blocks = registry names matching a filter,
  * place = sets a block without neighbour updates (mod portals would break without their frame),
+ * cmdblock = runs a command through a temporary command block, which is how CustomNPCs runs quest commands,
  * hold = puts an item straight into the held slot (/give drops it as an entity, which some mods interfere with).
  */
 @Mod(modid = "dctest", name = "DimensionControl Test Helper", version = "1.0.0", acceptableRemoteVersions = "*")
@@ -94,6 +96,18 @@ public class DCTestMod {
                         meta,
                         2);
                     LOG.info("DCTEST placed {}:{} at {} {} {}", args[4], meta, args[1], args[2], args[3]);
+                    return;
+                }
+                if (args.length >= 2 && "cmdblock".equals(args[0])) {
+                    StringBuilder command = new StringBuilder();
+                    for (int i = 1; i < args.length; i++) {
+                        command.append(i > 1 ? " " : "").append(args[i]);
+                    }
+                    TileEntityCommandBlock block = new TileEntityCommandBlock();
+                    block.setWorldObj(MinecraftServer.getServer().worldServerForDimension(0));
+                    block.func_145993_a().func_145752_a(command.toString());
+                    block.func_145993_a().func_145755_a(block.getWorldObj());
+                    LOG.info("DCTEST cmdblock ran: {}", command);
                     return;
                 }
                 if ((args.length == 3 || args.length == 4) && "hold".equals(args[0])) {

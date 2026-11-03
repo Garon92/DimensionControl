@@ -1,6 +1,7 @@
 package cz.dmuzik.dimensioncontrol;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -10,6 +11,8 @@ import java.util.TreeSet;
 
 import net.minecraftforge.common.DimensionManager;
 import net.minecraftforge.common.config.Configuration;
+
+import com.google.common.io.Files;
 
 public final class DCConfig {
 
@@ -30,8 +33,11 @@ public final class DCConfig {
 
     private static final Map<String, Object[]> DEFAULT_RULES = defaultRules();
 
+    private static File configFile;
     private static Configuration config;
     private static volatile Map<Integer, DimensionRule> rules = Collections.emptyMap();
+    /** Why the config file was refused; the rules then stay as they were. */
+    private static List<String> fileProblems = Collections.emptyList();
     /** Problems found while reading the file (wrong item format, duplicate dimensions). */
     private static List<String> loadProblems = new ArrayList<String>();
     /** Everything wrong with the current config, shown to admins in chat. */
@@ -40,15 +46,43 @@ public final class DCConfig {
     private DCConfig() {}
 
     public static void init(File file) {
-        boolean firstRun = !file.exists();
-        config = new Configuration(file);
-        load(firstRun);
+        configFile = file;
+        if (!readConfigFile()) {
+            File lastGood = lastGoodFile();
+            if (lastGood.exists()) {
+                load(lastGood, false);
+            }
+            DimensionControl.LOG.error(
+                "{} has errors, using {}",
+                file.getName(),
+                lastGood.exists() ? lastGood.getName() : "no rules at all, as there is no earlier good copy");
+        }
     }
 
     /** Re-reads the file and validates it again. Returns problems worth showing to an admin. */
     public static synchronized List<String> reload() {
-        load(false);
+        readConfigFile();
         return validate();
+    }
+
+    /** Loads the config file unless it has errors, in which case what is loaded now stays in force. */
+    private static boolean readConfigFile() {
+        boolean firstRun = !configFile.exists();
+        fileProblems = firstRun ? Collections.<String>emptyList() : ConfigCheck.check(configFile);
+        if (!fileProblems.isEmpty()) {
+            return false;
+        }
+        load(configFile, firstRun);
+        try {
+            Files.copy(configFile, lastGoodFile());
+        } catch (IOException e) {
+            DimensionControl.LOG.warn("Could not save {}", lastGoodFile().getName(), e);
+        }
+        return true;
+    }
+
+    private static File lastGoodFile() {
+        return new File(configFile.getPath() + ".lastgood");
     }
 
     /**
@@ -56,7 +90,13 @@ public final class DCConfig {
      * dimensions (server start).
      */
     public static List<String> validate() {
-        List<String> found = new ArrayList<String>(loadProblems);
+        List<String> found = new ArrayList<String>();
+        for (String problem : fileProblems) {
+            found.add(
+                "Config má chybu a neplatí, " + (lastGoodFile().exists() ? "platí poslední dobrá verze: "
+                    : "dobrá verze není, takže žádná dimenze není omezená: ") + problem);
+        }
+        found.addAll(loadProblems);
         for (DimensionRule rule : rules.values()) {
             if (!rule.resolve()) {
                 found.add(
@@ -67,6 +107,11 @@ public final class DCConfig {
                 found.add(
                     "Pravidlo '" + rule.key + "': dimenze " + rule.dimensionId
                         + " na serveru neexistuje - pravidlo nic nehlídá (správná ID: /dimaccess dims)");
+            }
+            if (rule.dimensionId == 0 && alwaysAllowOverworld) {
+                found.add(
+                    "Pravidlo '" + rule.key + "': dimenze 0 je Overworld, který se neomezuje - pravidlo nic nehlídá"
+                        + " (chybí dimensionId?)");
             }
         }
         for (String problem : found) {
@@ -92,8 +137,9 @@ public final class DCConfig {
         return rules;
     }
 
-    private static synchronized void load(boolean firstRun) {
-        config.load();
+    private static synchronized void load(File file, boolean firstRun) {
+        // A new object each time: an old one would keep blocks that were deleted from the file in the meantime
+        config = new Configuration(file, true);
 
         config.setCategoryComment(
             CATEGORY_GENERAL,

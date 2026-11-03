@@ -274,7 +274,7 @@ async function main() {
   await console_('dimaccess grant Bob 1', /odemčena pro|už má/);
   out = await console_('dimaccess check Bob', /\(broken\)/);
   check('T16 check: unlocked dimension', /1 \(The End\): POVOLENO - trvale odemčeno/.test(out));
-  check('T16 check: rule with an unknown item', /7 \(broken\): ZAMÍTNUTO - potřebuje nosuchmod:nothing \(ten předmět neexistuje/.test(out));
+  check('T16 check: a rule on a missing dimension does not claim to guard it', /7 \(broken\): NEHLÍDÁ - tahle dimenze na serveru neexistuje/.test(out));
   await console_('dimaccess revoke Bob all', /odebráno/);
 
   // ---- T17: operators see config problems when they log in ----
@@ -409,6 +409,42 @@ async function main() {
   check('T22 notices off: bypass works silently', bob.dim === -1 && !bob.chat.slice(c).some((m) => /obchvat/.test(m)), JSON.stringify(bob.chat.slice(c)));
   await backToOverworld(bob);
   await console_('deop Bob', /De-opped Bob/);
+
+  // ---- T23: /dimaccess is for operators only ----
+  c = bob.chat.length;
+  bob.client.write('chat', { message: '/dimaccess rules' });
+  await sleep(1000);
+  check('T23 non-OP is refused', bob.chat.slice(c).some((m) => /commands\.generic\.permission/.test(m)) && !bob.chat.slice(c).some((m) => /Hlavní kontrola/.test(m)), JSON.stringify(bob.chat.slice(c)));
+  c = bob.chat.length;
+  bob.client.write('chat', { message: '/dimaccess grant Bob -1' });
+  await sleep(1000);
+  out = await console_('dimaccess list Bob', /má odemčeno/);
+  check('T23 non-OP cannot grant himself access', /má odemčeno: nic/.test(out));
+  await console_('op Bob', /Opped Bob/);
+  c = bob.chat.length;
+  bob.client.write('chat', { message: '/dimaccess rules' });
+  await waitFor(() => bob.chat.slice(c).some((m) => /Hlavní kontrola/.test(m)), 3000);
+  check('T23 OP can use it', bob.chat.slice(c).some((m) => /Hlavní kontrola/.test(m)));
+  await console_('deop Bob', /De-opped Bob/);
+
+  // ---- T24: a grant on a rule that ignores unlocks has to say so ----
+  setRule('nether', 'B:unlockAfterFirstEntry', 'false');
+  await console_('dimaccess reload', /Config znovu načten/);
+  await console_('dimaccess revoke Bob all', /odebráno/);
+  cmd('clear Bob');
+  await sleep(500);
+  out = await console_('dimaccess grant Bob -1', /unlockAfterFirstEntry=false/);
+  check('T24 grant warns when the rule ignores unlocks', /nepoužije/.test(out));
+  await enterPortal(bob);
+  await sleep(6000);
+  check('T24 and the player really stays out', bob.dim === 0, `dim=${bob.dim}`);
+  setRule('nether', 'B:unlockAfterFirstEntry', 'true');
+  await console_('dimaccess reload', /Config znovu načten/);
+  out = await console_('dimaccess grant Bob -1', /už má/);
+  check('T24 no warning when the rule honours unlocks', !/nepoužije/.test(out));
+  await enterAndWait(bob);
+  check('T24 the same grant works once the rule honours unlocks', bob.dim === -1, `dim=${bob.dim}`);
+  await backToOverworld(bob);
 
   check('no bot was kicked', !alice.kicked && !bob.kicked, `${alice.kicked || ''} ${bob.kicked || ''}`);
 

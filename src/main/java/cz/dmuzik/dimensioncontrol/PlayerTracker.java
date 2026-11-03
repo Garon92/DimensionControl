@@ -70,6 +70,10 @@ public class PlayerTracker {
         }
     }
 
+    public static boolean wasBlockedThisTick(EntityPlayerMP player) {
+        return blockedAt.containsKey(player.getUniqueID());
+    }
+
     public static void clear() {
         tracks.clear();
         blockedAt.clear();
@@ -87,6 +91,7 @@ public class PlayerTracker {
         int now = server.getTickCounter();
         List<?> players = new ArrayList<Object>(server.getConfigurationManager().playerEntityList);
 
+        AchievementGuard.endOfTick(server);
         if (!blockedAt.isEmpty()) {
             for (Object o : players) {
                 EntityPlayerMP player = (EntityPlayerMP) o;

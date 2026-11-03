@@ -55,6 +55,7 @@ async function main() {
   const ruleCount = new Set(PORTALS.map((p) => p.dimId)).size + 2; // + the Nether and End examples
   check(`rules for ${PORTALS.length} mod portals loaded`, reload.includes(`pravidel: ${ruleCount}`), reload.match(/pravidel: \d+/)[0]);
 
+  const startMark = logSize();
   const alice = new Bot('Alice', mods);
   await alice.ready();
   const bob = new Bot('Bob', mods);
@@ -114,11 +115,28 @@ async function main() {
     check(`${p.mod}: allowed with the item (dim ${p.dimId})`, wa.dim === p.dimId && alice.dim === p.dimId, `server dim=${wa.dim} client dim=${alice.dim}`);
     await sleep(500);
     check(`${p.mod}: took exactly one item`, L.held(alice) === 2, `held=${L.held(alice)}`);
+    if (p.mod === 'Aether Legacy') {
+      // Released at the end of the entry tick, and the first visit can stall the server right after that
+      const slots = () => Object.values(alice.inv).filter((id) => id !== -1).length;
+      await waitFor(() => slots() >= 3, 20000);
+      check('Aether gifts arrive on the real entry', slots() >= 3, `filled slots=${slots()}`);
+    }
     if (wa.dim !== 0) {
       cmd('dctest manual Alice 0');
       await waitFor(() => alice.dim === 0, 60000, 'Alice back');
       await where('Alice', 60000);
       await sleep(1000);
+    }
+  }
+
+  // ---- Nothing is awarded for a blocked attempt, everything for a real entry ----
+  const earned = logSince(startMark).split('\n').filter((l) => /has just earned the achievement/.test(l)).map((l) => l.replace(/^\[.*?\]: /, ''));
+  console.log('ACHIEVEMENTS', JSON.stringify(earned));
+  check('blocked player earned no achievement', !earned.some((l) => /^Bob /.test(l)), earned.filter((l) => /^Bob /.test(l)).join(' | '));
+  check('blocked player got no gifts', Object.values(bob.inv).filter((id) => id !== -1).length === 0, JSON.stringify(bob.inv));
+  for (const a of ['Hostile Paradise', 'Twilight Portal', 'Twilight Arrival', 'Glacia']) {
+    if (PORTALS.some((p) => p.mod === 'Glacia') || a !== 'Glacia') {
+      check(`entering player earned [${a}]`, earned.includes(`Alice has just earned the achievement [${a}]`));
     }
   }
 

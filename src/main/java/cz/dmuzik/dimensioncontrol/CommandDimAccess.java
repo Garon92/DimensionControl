@@ -68,6 +68,13 @@ public class CommandDimAccess extends CommandBase {
             boolean changed = UnlockData.unlock(profile.getId(), dim);
             send(sender, changed ? "§aDimenze " + describe(dim) + " odemčena pro " + profile.getName()
                 : "§e" + profile.getName() + " už má dimenzi " + describe(dim) + " odemčenou");
+            DimensionRule rule = DCConfig.getRule(dim);
+            if (rule != null && !rule.unlockAfterFirstEntry) {
+                send(
+                    sender,
+                    "§cPozor: pravidlo dimenze " + describe(dim)
+                        + " má unlockAfterFirstEntry=false, odemčení se nepoužije a hráč pořád potřebuje předmět");
+            }
         } else if ("revoke".equals(sub) && args.length == 3) {
             GameProfile profile = profile(args[1]);
             if ("all".equalsIgnoreCase(args[2])) {
@@ -151,6 +158,10 @@ public class CommandDimAccess extends CommandBase {
                 continue;
             }
             String head = "§e" + rule.dimensionId + "§r (" + rule.dimensionName + "): ";
+            if (!DimensionManager.isDimensionRegistered(rule.dimensionId)) {
+                send(sender, head + "§eNEHLÍDÁ§r - tahle dimenze na serveru neexistuje (správná ID: /dimaccess dims)");
+                continue;
+            }
             switch (AccessManager.evaluate(player, rule.dimensionId)) {
                 case UNRESTRICTED:
                     send(sender, head + "§aPOVOLENO§r - neomezeno (alwaysAllowOverworld=true)");

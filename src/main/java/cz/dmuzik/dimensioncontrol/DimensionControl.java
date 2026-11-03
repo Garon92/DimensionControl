@@ -2,6 +2,7 @@ package cz.dmuzik.dimensioncontrol;
 
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.server.management.ServerConfigurationManager;
+import net.minecraftforge.common.MinecraftForge;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -21,13 +22,14 @@ import cz.dmuzik.dimensioncontrol.asm.HookStatus;
 public class DimensionControl {
 
     public static final String MODID = "dimensioncontrol";
-    public static final String VERSION = "1.1.0";
+    public static final String VERSION = "1.2.0";
     public static final Logger LOG = LogManager.getLogger("DimensionControl");
 
     @Mod.EventHandler
     public void preInit(FMLPreInitializationEvent event) {
         DCConfig.init(event.getSuggestedConfigurationFile());
         FMLCommonHandler.instance().bus().register(new PlayerTracker());
+        MinecraftForge.EVENT_BUS.register(new AchievementGuard());
     }
 
     @Mod.EventHandler
@@ -65,5 +67,6 @@ public class DimensionControl {
         UnlockData.clearCache();
         PlayerTracker.clear();
         AccessManager.clear();
+        AchievementGuard.clear();
     }
 }
